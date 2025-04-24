@@ -1,0 +1,238 @@
+/* PubMed Health Importer Admin CSS */
+
+/* Genel Stiller */
+.pubmed-health-importer-admin {
+    max-width: 1200px;
+    margin: 20px 0;
+}
+
+.pubmed-health-importer-admin h1 {
+    margin-bottom: 20px;
+}
+
+.pubmed-health-importer-admin h2 {
+    margin-top: 30px;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+.pubmed-health-importer-admin h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+}
+
+/* Hoş Geldiniz Bölümü */
+.pubmed-health-importer-welcome {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+/* Kartlar */
+.pubmed-health-importer-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.pubmed-health-importer-card {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    flex: 1;
+    min-width: 250px;
+}
+
+.pubmed-health-importer-card h3 {
+    margin-top: 0;
+    color: #23282d;
+}
+
+.pubmed-health-importer-card p {
+    margin-bottom: 15px;
+}
+
+/* İstatistik Kartları */
+.pubmed-health-importer-stat-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.pubmed-health-importer-stat-card {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    flex: 1;
+    min-width: 200px;
+    text-align: center;
+}
+
+.pubmed-health-importer-stat-card h3 {
+    margin-top: 0;
+    font-size: 16px;
+    color: #23282d;
+}
+
+.pubmed-health-importer-stat-number {
+    font-size: 36px;
+    font-weight: bold;
+    color: #0073aa;
+    margin: 10px 0;
+}
+
+/* Arama Formu */
+.pubmed-health-importer-search-form {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.pubmed-search-field {
+    margin-bottom: 15px;
+}
+
+.pubmed-search-field label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.pubmed-search-field .description {
+    margin-top: 5px;
+    color: #666;
+    font-style: italic;
+}
+
+/* Arama Sonuçları */
+.pubmed-health-importer-search-results {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.pubmed-result-item {
+    border-bottom: 1px solid #eee;
+    padding: 15px 0;
+}
+
+.pubmed-result-item:last-child {
+    border-bottom: none;
+}
+
+.pubmed-result-item h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+.pubmed-result-meta {
+    margin-bottom: 10px;
+    color: #666;
+}
+
+.pubmed-result-meta span {
+    margin-right: 15px;
+}
+
+.pubmed-result-actions {
+    margin-top: 10px;
+}
+
+.pubmed-result-abstract {
+    margin-top: 15px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 3px;
+}
+
+.pubmed-result-abstract h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+/* Zamanlanmış Aramalar */
+.pubmed-health-importer-add-search {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.pubmed-scheduled-search-field {
+    margin-bottom: 15px;
+}
+
+.pubmed-scheduled-search-field label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.pubmed-health-importer-search-list {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Ayarlar */
+.pubmed-health-importer-settings {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.pubmed-health-importer-settings-help {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.pubmed-health-importer-settings-help-section {
+    margin-bottom: 20px;
+}
+
+.pubmed-health-importer-settings-help-section h3 {
+    margin-top: 0;
+    color: #23282d;
+}
+
+/* Spinner */
+.spinner {
+    float: none;
+    margin-left: 10px;
+    vertical-align: middle;
+}
+
+/* Bildirimler */
+.notice {
+    margin: 15px 0;
+}
+
+/* Duyarlı Tasarım */
+@media screen and (max-width: 782px) {
+    .pubmed-health-importer-cards,
+    .pubmed-health-importer-stat-cards {
+        flex-direction: column;
+    }
+    
+    .pubmed-health-importer-card,
+    .pubmed-health-importer-stat-card {
+        min-width: 100%;
+    }
+}
