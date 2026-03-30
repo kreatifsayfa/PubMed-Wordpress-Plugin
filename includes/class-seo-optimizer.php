@@ -229,12 +229,122 @@ class SEO_Optimizer {
      * İçeriğe iç bağlantılar ekler
      *
      * @param string $content İçerik
-     * @return string İç bağlantılar eklenmiş içerik
+     * @return string İç bağlantılar eklenmi�� içerik
      */
     private function add_internal_links($content) {
-        // Bu fonksiyon daha sonra genişletilebilir
-        // Şimdilik içeriği değiştirmeden döndürüyoruz
+        global $wpdb;
+
+        // İçerik boşsa veya çok kısaysa işlem yapma
+        if (empty($content) || strlen($content) < 200) {
+            return $content;
+        }
+
+        // Mevcut postlardan link eklenmiş kelimeleri takip et (aynı kelimeye birden fazla link eklememek için)
+        $linked_keywords = array();
+
+        // Mevcut post ID'yi al (import sırasında olabilir, bu yüzden 0 kabul et)
+        $current_post_id = function_exists('get_the_ID') ? get_the_ID() : 0;
+        if ($current_post_id === 0) {
+            $exclude_clause = '';
+        } else {
+            $exclude_clause = 'AND p.ID != ' . intval($current_post_id);
+        }
+
+        // Mevcut pubmed_article postlarını al (son 50 makale)
+        $articles = $wpdb->get_results(
+            "SELECT p.ID, p.post_title
+            FROM {$wpdb->posts} p
+            WHERE p.post_type = 'pubmed_article'
+            AND p.post_status = 'publish'
+            $exclude_clause
+            ORDER BY p.post_date DESC
+            LIMIT 50",
+            ARRAY_A
+        );
+
+        if (empty($articles)) {
+            return $content;
+        }
+
+        // Her makale için anahtar kelimeleri çıkar ve link ekle
+        foreach ($articles as $article) {
+            $post_id = $article['ID'];
+            $post_title = $article['post_title'];
+            $post_url = get_permalink($post_id);
+
+            // Başlıktan anahtar kelimeler çıkar (en az 3 kelimelik ifadeler)
+            $keywords = $this->extract_keywords_from_title($post_title);
+
+            foreach ($keywords as $keyword) {
+                // Bu kelime zaten link edildiyse devam et
+                if (in_array(strtolower($keyword), $linked_keywords)) {
+                    continue;
+                }
+
+                // Keyword'ü içerikte ara (büyük/küçük harf duyarsız, kelime sınırlarına dikkat et)
+                $pattern = '/\b(' . preg_quote($keyword, '/') . ')\b/iu';
+                $match_count = preg_match($pattern, $content);
+
+                // Eğer keyword içerikte varsa, ilk bulunduğu yere link ekle
+                if ($match_count) {
+                    $replacement = '<a href="' . esc_url($post_url) . '" title="' . esc_attr($post_title) . '">$1</a>';
+                    $content = preg_replace($pattern, $replacement, $content, 1); // Sadece ilk eşleşmeyi değiştir
+
+                    // Bu kelimeyi link edilmiş olarak işaretle
+                    $linked_keywords[] = strtolower($keyword);
+
+                    // Maksimum 5 iç link ekle (çok fazla link SEO için zararlı)
+                    if (count($linked_keywords) >= 5) {
+                        break 2; // İki döngüden de çık
+                    }
+                }
+            }
+        }
+
         return $content;
+    }
+
+    /**
+     * Başlıktan anahtar kelimeleri çıkarır
+     *
+     * @param string $title Başlık
+     * @return array Anahtar kelimeler
+     */
+    private function extract_keywords_from_title($title) {
+        $keywords = array();
+
+        // Başlığı temizle (özel karakterleri kaldır)
+        $clean_title = preg_replace('/[^\p{L}\p{N}\s-]/u', '', $title);
+
+        // Tam başlığı anahtar kelime olarak ekle
+        $keywords[] = $clean_title;
+
+        // Başlığı kelimelere böl
+        $words = preg_split('/\s+/u', $clean_title);
+
+        // 3 kelimelik kombinasyonlar oluştur
+        for ($i = 0; $i < count($words) - 2; $i++) {
+            $three_word_phrase = $words[$i] . ' ' . $words[$i + 1] . ' ' . $words[$i + 2];
+            if (mb_strlen($three_word_phrase, 'UTF-8') > 10) { // En az 10 karakter
+                $keywords[] = $three_word_phrase;
+            }
+        }
+
+        // 2 kelimelik kombinasyonlar oluştur
+        for ($i = 0; $i < count($words) - 1; $i++) {
+            $two_word_phrase = $words[$i] . ' ' . $words[$i + 1];
+            if (mb_strlen($two_word_phrase, 'UTF-8') > 8) { // En az 8 karakter
+                $keywords[] = $two_word_phrase;
+            }
+        }
+
+        // Tekrar edenleri kaldır ve uzunluğa göre sırala (uzun olanlar önce)
+        $keywords = array_unique($keywords);
+        usort($keywords, function($a, $b) {
+            return mb_strlen($b, 'UTF-8') - mb_strlen($a, 'UTF-8');
+        });
+
+        return $keywords;
     }
 
     /**
@@ -385,13 +495,168 @@ class SEO_Optimizer {
      * @return array Sorular
      */
     private function extract_questions_from_content($content) {
-        // Bu fonksiyon daha sonra genişletilebilir
-        // Şimdilik boş dizi döndürüyoruz
-        return array();
+        $questions = array();
+
+        // HTML etiketlerini temizleyip düz metin olarak işle
+        // Önce H2 ve H3 başlıklarını çıkar
+        preg_match_all('/<h[23][^>]*>(.*?)<\/h[23]>/is', $content, $headings);
+        $headings_list = isset($headings[1]) ? $headings[1] : array();
+
+        // Başlıklardan soru türet
+        foreach ($headings_list as $heading) {
+            $heading_text = strip_tags($heading);
+            $heading_text = trim($heading_text);
+
+            if (mb_strlen($heading_text, 'UTF-8') < 5 || mb_strlen($heading_text, 'UTF-8') > 100) {
+                continue;
+            }
+
+            // Zaten soru formatında mı
+            if (substr(trim($heading_text), -1) === '?') {
+                $question = $heading_text;
+                $answer = $this->find_answer_for_question($content, $heading_text);
+            } else {
+                // Başlığı soruya dönüştür
+                $question = $this->convert_to_question($heading_text);
+                $answer = $this->find_answer_for_question($content, $heading_text);
+            }
+
+            // Cevap bulunduysa ekle
+            if (!empty($answer) && mb_strlen($answer, 'UTF-8') > 20) {
+                $questions[] = array(
+                    'question' => $question,
+                    'answer' => $answer,
+                );
+            }
+
+            // Maksimum 5 soru çıkar
+            if (count($questions) >= 5) {
+                break;
+            }
+        }
+
+        // Eğer başlıklardan yeterli soru bulunamadıysa, paragraflardan da çıkar
+        if (count($questions) < 5) {
+            preg_match_all('/<p[^>]*>(.*?)<\/p>/is', $content, $paragraphs);
+            $paragraphs_list = isset($paragraphs[1]) ? $paragraphs[1] : array();
+
+            foreach ($paragraphs_list as $paragraph) {
+                $para_text = strip_tags($paragraph);
+                $para_text = trim($para_text);
+
+                // Soru ile başlayan cümleleri bul
+                if (preg_match('/^[A-ZİĞÜŞÖÇ][^.;:!?]*\?/u', $para_text, $match)) {
+                    $question = $match[0];
+
+                    // Sorudan sonraki cümleyi cevap olarak al
+                    $answer = trim(str_replace($question, '', $para_text));
+                    $answer = preg_replace('/^[.:\s]+/u', '', $answer);
+
+                    if (mb_strlen($answer, 'UTF-8') > 30) {
+                        // Cevabı kısalt (maksimum 300 karakter)
+                        $answer = $this->truncate_answer($answer, 300);
+
+                        $questions[] = array(
+                            'question' => $question,
+                            'answer' => $answer,
+                        );
+                    }
+                }
+
+                if (count($questions) >= 8) {
+                    break;
+                }
+            }
+        }
+
+        return $questions;
     }
 
     /**
-     * Şema markup oluşturur
+     * Metni soruya dönüştürür
+     *
+     * @param string $text Metin
+     * @return string Soru
+     */
+    private function convert_to_question($text) {
+        $text_lower = mb_strtolower($text, 'UTF-8');
+
+        // Zaten soru kelimesi içeriyor mu
+        if (preg_match('/^(nedir|nasıl|neden|ne zaman|kim|hangi|kaç|nerede)/ui', $text)) {
+            return $text . '?';
+        }
+
+        // "Nedir" ile biten kelimeler için
+        if (preg_match('/\s(nedir|nelerdir)$/ui', $text)) {
+            return $text . '?';
+        }
+
+        // Suffix ekleyerek soruya dönüştür
+        $suffixes = array(
+            'nedir?',
+            'nasıl yapılır?',
+            'nelerdir?',
+            'neden önemlidir?'
+        );
+
+        // Uygun soneki seç
+        foreach ($suffixes as $suffix) {
+            if (mb_strlen($text . ' ' . $suffix, 'UTF-8') < 80) {
+                return $text . ' ' . $suffix;
+            }
+        }
+
+        return $text . ' nedir?';
+    }
+
+    /**
+     * Soru için cevap bulur
+     *
+     * @param string $content İçerik
+     * @param string $heading_text Başlık metni
+     * @return string Cevap
+     */
+    private function find_answer_for_question($content, $heading_text) {
+        // Başlıktan sonraki paragrafı bul
+        $pattern = '/<h[23][^>]*>' . preg_quote($heading_text, '/') . '<\/h[23]>\s*<p[^>]*>(.*?)<\/p>/is';
+        preg_match($pattern, $content, $match);
+
+        if (isset($match[1])) {
+            $answer = strip_tags($match[1]);
+            $answer = trim($answer);
+
+            // Cevabı uygun uzunlukta kırp
+            return $this->truncate_answer($answer, 300);
+        }
+
+        return '';
+    }
+
+    /**
+     * Cevabı belirli uzunlukta kırp
+     *
+     * @param string $answer Cevap
+     * @param int $max_length Maksimum uzunluk
+     * @return string Kırpılmış cevap
+     */
+    private function truncate_answer($answer, $max_length = 300) {
+        if (mb_strlen($answer, 'UTF-8') <= $max_length) {
+            return $answer;
+        }
+
+        $truncated = mb_substr($answer, 0, $max_length, 'UTF-8');
+
+        // Son boşlukta kes
+        $last_space = mb_strrpos($truncated, ' ', 0, 'UTF-8');
+        if ($last_space !== false) {
+            $truncated = mb_substr($truncated, 0, $last_space, 'UTF-8');
+        }
+
+        return $truncated . '...';
+    }
+
+    /**
+     * Şema markup oluşturur (Google Featured Snippet için optimize)
      *
      * @param string $title Başlık
      * @param string $content İçerik
@@ -406,86 +671,229 @@ class SEO_Optimizer {
         if (!$this->seo_enabled) {
             return '';
         }
-        
-        $schema = array();
-        
-        // MedicalWebPage şeması
-        $schema['MedicalWebPage'] = array(
-            '@context' => 'https://schema.org',
-            '@type' => 'MedicalWebPage',
-            'headline' => $title,
-            'description' => $excerpt,
-            'datePublished' => $publication_date,
-            'publisher' => array(
-                '@type' => 'Organization',
-                'name' => get_bloginfo('name'),
-                'logo' => array(
-                    '@type' => 'ImageObject',
-                    'url' => $this->get_site_logo_url(),
-                ),
+
+        $current_date = current_time('Y-m-d');
+
+        // Google Featured Snippet için @graph yapısı
+        $graph = array();
+
+        // WebPage şeması (Temel)
+        $graph[] = array(
+            '@type' => 'WebPage',
+            '@id' => get_permalink() . '#webpage',
+            'url' => get_permalink(),
+            'name' => $title,
+            'description' => $this->create_featured_snippet_description($excerpt),
+            'inLanguage' => 'tr-TR',
+            'isPartOf' => array(
+                '@id' => get_home_url() . '#website'
             ),
         );
-        
-        // Article şeması
-        $schema['Article'] = array(
-            '@context' => 'https://schema.org',
+
+        // MedicalArticle şeması (Ana içerik)
+        $article_data = array(
             '@type' => 'MedicalScholarlyArticle',
+            '@id' => get_permalink() . '#article',
             'headline' => $title,
-            'description' => $excerpt,
-            'datePublished' => $publication_date,
+            'description' => $this->create_meta_description($excerpt, $title),
+            'image' => $this->get_article_image_url(),
+            'datePublished' => $publication_date ? $publication_date : $current_date,
+            'dateModified' => $current_date,
+            'author' => $this->create_author_schema($authors),
             'publisher' => array(
                 '@type' => 'Organization',
+                '@id' => get_home_url() . '#organization',
                 'name' => get_bloginfo('name'),
                 'logo' => array(
                     '@type' => 'ImageObject',
                     'url' => $this->get_site_logo_url(),
                 ),
             ),
+            'isPartOf' => array(
+                '@id' => get_permalink() . '#webpage'
+            ),
+            'mainEntity' => array(
+                '@type' => 'MedicalEntity',
+                'name' => $title,
+            ),
         );
-        
-        // Yazarları ekle
-        if (!empty($authors)) {
-            $author_schema = array();
-            
-            foreach ($authors as $author) {
-                $author_schema[] = array(
-                    '@type' => 'Person',
-                    'name' => $author,
+
+        // MeSH terimlerini medical code olarak ekle
+        $mesh_terms = $this->extract_mesh_terms_from_content($content);
+        if (!empty($mesh_terms)) {
+            $article_data['about'] = array();
+            foreach ($mesh_terms as $term) {
+                $article_data['about'][] = array(
+                    '@type' => 'MedicalEntity',
+                    'name' => $term,
                 );
             }
-            
-            $schema['Article']['author'] = $author_schema;
         }
-        
-        // Dergiyi ekle
+
+        $graph[] = $article_data;
+
+        // Dergi bilgisi
         if (!empty($journal)) {
-            $schema['Article']['isPartOf'] = array(
+            $graph[] = array(
                 '@type' => 'Periodical',
+                '@id' => get_permalink() . '#periodical',
                 'name' => $journal,
             );
         }
-        
-        // FAQ şeması
+
+        // FAQ şeması (Google Featured Snippet için kritik)
         if (!empty($faq)) {
-            $schema['FAQPage'] = array(
-                '@context' => 'https://schema.org',
-                '@type' => 'FAQPage',
-                'mainEntity' => array(),
-            );
-            
+            $faq_entities = array();
             foreach ($faq as $item) {
-                $schema['FAQPage']['mainEntity'][] = array(
-                    '@type' => 'Question',
-                    'name' => $item['question'],
-                    'acceptedAnswer' => array(
-                        '@type' => 'Answer',
-                        'text' => $item['answer'],
-                    ),
+                if (!empty($item['question']) && !empty($item['answer'])) {
+                    $faq_entities[] = array(
+                        '@type' => 'Question',
+                        'name' => $item['question'],
+                        'acceptedAnswer' => array(
+                            '@type' => 'Answer',
+                            'text' => $this->format_answer_for_snippet($item['answer']),
+                        ),
+                    );
+                }
+            }
+
+            if (!empty($faq_entities)) {
+                $graph[] = array(
+                    '@type' => 'FAQPage',
+                    '@id' => get_permalink() . '#faq',
+                    'mainEntity' => $faq_entities,
                 );
             }
         }
-        
-        return json_encode($schema);
+
+        // Breadcrumb şeması
+        $graph[] = $this->create_breadcrumb_schema();
+
+        // Final JSON-LD
+        $schema = array(
+            '@context' => 'https://schema.org',
+            '@graph' => $graph,
+        );
+
+        return json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * Featured snippet için açıklama oluşturur (40-60 kelime)
+     */
+    private function create_featured_snippet_description($excerpt) {
+        $words = explode(' ', strip_tags($excerpt));
+        $snippet = array_slice($words, 0, 50);
+        $text = implode(' ', $snippet);
+
+        if (mb_strlen($text, 'UTF-8') > 300) {
+            $text = mb_substr($text, 0, 297, 'UTF-8') . '...';
+        }
+
+        return $text;
+    }
+
+    /**
+     * Meta description oluşturur (150-160 karakter)
+     */
+    private function create_meta_description($excerpt, $title) {
+        $description = strip_tags($excerpt);
+
+        // Başlıkla birleştir
+        $combined = $title . ' - ' . $description;
+
+        // 160 karakter ile sınırlandır
+        if (mb_strlen($combined, 'UTF-8') > 160) {
+            $combined = mb_substr($combined, 0, 157, 'UTF-8') . '...';
+        }
+
+        return $combined;
+    }
+
+    /**
+     * Yazar şeması oluşturur
+     */
+    private function create_author_schema($authors) {
+        if (empty($authors)) {
+            return array(
+                '@type' => 'Person',
+                'name' => get_bloginfo('name'),
+            );
+        }
+
+        $author_list = array();
+        foreach ($authors as $author) {
+            $author_list[] = array(
+                '@type' => 'Person',
+                'name' => $author,
+            );
+        }
+
+        // İlk yazarı ana yazar olarak döndür
+        return count($author_list) === 1 ? $author_list[0] : $author_list;
+    }
+
+    /**
+     * Makale görsel URL'sini alır
+     */
+    private function get_article_image_url() {
+        // Eğer post varsa featured image'ı kullan
+        if (function_exists('get_the_ID') && has_post_thumbnail(get_the_ID())) {
+            return get_the_post_thumbnail_url(get_the_ID(), 'large');
+        }
+
+        // Varsayılan logo
+        return $this->get_site_logo_url();
+    }
+
+    /**
+     * İçerikten MeSH terimlerini çıkarır
+     */
+    private function extract_mesh_terms_from_content($content) {
+        preg_match_all('/<span[^>]*class="[^"]*mesh-term[^"]*"[^>]*>(.*?)<\/span>/is', $content, $matches);
+        return isset($matches[1]) ? array_map('strip_tags', $matches[1]) : array();
+    }
+
+    /**
+     * Cevabı snippet formatında hazırlar
+     */
+    private function format_answer_for_snippet($answer) {
+        // HTML etiketlerini temizle
+        $answer = strip_tags($answer);
+
+        // Maksimum 100 kelime (Google snippet limiti)
+        $words = explode(' ', $answer);
+        if (count($words) > 100) {
+            $answer = implode(' ', array_slice($words, 0, 100)) . '...';
+        }
+
+        return $answer;
+    }
+
+    /**
+     * Breadcrumb şeması oluşturur
+     */
+    private function create_breadcrumb_schema() {
+        $breadcrumbs = array(
+            array(
+                '@type' => 'ListItem',
+                'position' => 1,
+                'name' => __('Ana Sayfa', 'pubmed-health-importer'),
+                'item' => get_home_url(),
+            ),
+            array(
+                '@type' => 'ListItem',
+                'position' => 2,
+                'name' => __('Sağlık Rehberi', 'pubmed-health-importer'),
+                'item' => get_post_type_archive_link('pubmed_article'),
+            ),
+        );
+
+        return array(
+            '@type' => 'BreadcrumbList',
+            '@id' => get_permalink() . '#breadcrumb',
+            'itemListElement' => $breadcrumbs,
+        );
     }
 
     /**

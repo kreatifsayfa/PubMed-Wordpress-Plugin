@@ -80,15 +80,21 @@ class PubMed_API {
     public function search($query, $count = 10, $start = 0) {
         // Kadın ve bebek sağlığı ile ilgili MeSH terimlerini ekle
         $query = $this->add_health_terms($query);
-        
+
         // Önbellekte var mı kontrol et
         $cache_key = 'pubmed_search_' . md5($query . $count . $start);
         $cached_results = get_transient($cache_key);
-        
+
         if ($cached_results !== false) {
             return $cached_results;
         }
-        
+
+        // HTTP istek args
+        $http_args = array(
+            'timeout' => 30, // 30 saniye timeout
+            'sslverify' => false, // SSL sertifika sorunları için
+        );
+
         // ESearch parametreleri
         $params = array(
             'db' => 'pubmed',
@@ -101,17 +107,22 @@ class PubMed_API {
             'tool' => $this->tool,
             'email' => $this->email,
         );
-        
+
         // API anahtarı ekle
         if (!empty($this->api_key)) {
             $params['api_key'] = $this->api_key;
         }
-        
+
         // ESearch isteği gönder
         $esearch_url = $this->base_url . 'esearch.fcgi?' . http_build_query($params);
-        $response = wp_remote_get($esearch_url);
-        
+        $response = wp_remote_get($esearch_url, $http_args);
+
         if (is_wp_error($response)) {
+            // Hata mesajını daha açıklayıcı yap
+            $error_message = $response->get_error_message();
+            if (strpos($error_message, 'timed out') !== false) {
+                return new WP_Error('timeout', __('PubMed API yanıt vermedi. Lütfen tekrar deneyin veya arama terimini değiştirin.', 'pubmed-health-importer'));
+            }
             return $response;
         }
         
@@ -148,9 +159,12 @@ class PubMed_API {
         
         // ESummary isteği gönder
         $esummary_url = $this->base_url . 'esummary.fcgi?' . http_build_query($summary_params);
-        $summary_response = wp_remote_get($esummary_url);
-        
+        $summary_response = wp_remote_get($esummary_url, $http_args);
+
         if (is_wp_error($summary_response)) {
+            if (strpos($summary_response->get_error_message(), 'timed out') !== false) {
+                return new WP_Error('timeout', __('PubMed API yanıt vermedi. Lütfen tekrar deneyin.', 'pubmed-health-importer'));
+            }
             return $summary_response;
         }
         
@@ -163,11 +177,11 @@ class PubMed_API {
         
         // Sonuçları işle
         $articles = array();
-        
+
         foreach ($ids as $id) {
             if (isset($summary_data['result'][$id])) {
                 $article = $summary_data['result'][$id];
-                
+
                 // Yazarları işle
                 $authors = array();
                 if (isset($article['authors']) && is_array($article['authors'])) {
@@ -177,27 +191,34 @@ class PubMed_API {
                         }
                     }
                 }
-                
+
                 // Yayın tarihini işle
                 $pub_date = '';
                 if (isset($article['pubdate'])) {
                     $pub_date = $article['pubdate'];
                 }
-                
-                // Özeti işle
-                $abstract = '';
-                if (isset($article['title'])) {
-                    // Özet için EFetch kullanılacak, şimdilik boş bırakıyoruz
-                }
-                
+
                 $articles[] = array(
                     'id' => $id,
                     'title' => isset($article['title']) ? $article['title'] : '',
                     'authors' => $authors,
                     'journal' => isset($article['fulljournalname']) ? $article['fulljournalname'] : '',
                     'publication_date' => $pub_date,
-                    'abstract' => $abstract,
+                    'abstract' => '',
                 );
+            }
+        }
+
+        // Her makale için EFetch ile abstract çek
+        if (!empty($articles)) {
+            $abstracts = $this->fetch_abstracts($ids);
+            if (!is_wp_error($abstracts)) {
+                foreach ($articles as &$article_item) {
+                    if (isset($abstracts[$article_item['id']])) {
+                        $article_item['abstract'] = $abstracts[$article_item['id']];
+                    }
+                }
+                unset($article_item);
             }
         }
         
@@ -222,11 +243,17 @@ class PubMed_API {
         // Önbellekte var mı kontrol et
         $cache_key = 'pubmed_article_' . $id;
         $cached_article = get_transient($cache_key);
-        
+
         if ($cached_article !== false) {
             return $cached_article;
         }
-        
+
+        // HTTP istek args
+        $http_args = array(
+            'timeout' => 30,
+            'sslverify' => false,
+        );
+
         // EFetch parametreleri
         $params = array(
             'db' => 'pubmed',
@@ -236,17 +263,20 @@ class PubMed_API {
             'tool' => $this->tool,
             'email' => $this->email,
         );
-        
+
         // API anahtarı ekle
         if (!empty($this->api_key)) {
             $params['api_key'] = $this->api_key;
         }
-        
+
         // EFetch isteği gönder
         $efetch_url = $this->base_url . 'efetch.fcgi?' . http_build_query($params);
-        $response = wp_remote_get($efetch_url);
-        
+        $response = wp_remote_get($efetch_url, $http_args);
+
         if (is_wp_error($response)) {
+            if (strpos($response->get_error_message(), 'timed out') !== false) {
+                return new WP_Error('timeout', __('PubMed API yanıt vermedi. Lütfen tekrar deneyin.', 'pubmed-health-importer'));
+            }
             return $response;
         }
         
@@ -365,11 +395,17 @@ class PubMed_API {
         // Önbellekte var mı kontrol et
         $cache_key = 'pubmed_related_' . $id . '_' . $count;
         $cached_results = get_transient($cache_key);
-        
+
         if ($cached_results !== false) {
             return $cached_results;
         }
-        
+
+        // HTTP istek args
+        $http_args = array(
+            'timeout' => 30,
+            'sslverify' => false,
+        );
+
         // ELink parametreleri
         $params = array(
             'dbfrom' => 'pubmed',
@@ -380,16 +416,16 @@ class PubMed_API {
             'tool' => $this->tool,
             'email' => $this->email,
         );
-        
+
         // API anahtarı ekle
         if (!empty($this->api_key)) {
             $params['api_key'] = $this->api_key;
         }
-        
+
         // ELink isteği gönder
         $elink_url = $this->base_url . 'elink.fcgi?' . http_build_query($params);
-        $response = wp_remote_get($elink_url);
-        
+        $response = wp_remote_get($elink_url, $http_args);
+
         if (is_wp_error($response)) {
             return $response;
         }
@@ -441,9 +477,12 @@ class PubMed_API {
         
         // ESummary isteği gönder
         $esummary_url = $this->base_url . 'esummary.fcgi?' . http_build_query($summary_params);
-        $summary_response = wp_remote_get($esummary_url);
-        
+        $summary_response = wp_remote_get($esummary_url, $http_args);
+
         if (is_wp_error($summary_response)) {
+            if (strpos($summary_response->get_error_message(), 'timed out') !== false) {
+                return new WP_Error('timeout', __('PubMed API yanıt vermedi. Lütfen tekrar deneyin.', 'pubmed-health-importer'));
+            }
             return $summary_response;
         }
         
@@ -584,6 +623,83 @@ class PubMed_API {
         }
         
         return $query . $date_filter;
+    }
+
+    /**
+     * Birden fazla makale için abstract çeker
+     *
+     * @param array $ids PubMed ID'leri
+     * @return array|WP_Error Abstract verileri veya hata
+     */
+    private function fetch_abstracts($ids) {
+        $abstracts = array();
+        $batch_size = 100; // PubMed API sınırlarına göre
+
+        // HTTP istek args
+        $http_args = array(
+            'timeout' => 30,
+            'sslverify' => false,
+        );
+
+        // ID'leri batch'lere böl
+        $batches = array_chunk($ids, $batch_size);
+
+        foreach ($batches as $batch) {
+            // EFetch parametreleri
+            $params = array(
+                'db' => 'pubmed',
+                'id' => implode(',', $batch),
+                'retmode' => 'xml',
+                'rettype' => 'abstract',
+                'tool' => $this->tool,
+                'email' => $this->email,
+            );
+
+            // API anahtarı ekle
+            if (!empty($this->api_key)) {
+                $params['api_key'] = $this->api_key;
+            }
+
+            // EFetch isteği gönder
+            $efetch_url = $this->base_url . 'efetch.fcgi?' . http_build_query($params);
+            $response = wp_remote_get($efetch_url, $http_args);
+
+            if (is_wp_error($response)) {
+                continue;
+            }
+
+            $body = wp_remote_retrieve_body($response);
+
+            // XML'i işle
+            libxml_use_internal_errors(true);
+            $xml = simplexml_load_string($body);
+
+            if ($xml === false) {
+                libxml_clear_errors();
+                continue;
+            }
+
+            // Her makale için abstract'ı çıkar
+            if (isset($xml->PubmedArticle)) {
+                foreach ($xml->PubmedArticle as $pubmed_article) {
+                    $pmid = (string) $pubmed_article->MedlineCitation->PMID;
+
+                    $abstract = '';
+                    if (isset($pubmed_article->MedlineCitation->Article->Abstract->AbstractText)) {
+                        foreach ($pubmed_article->MedlineCitation->Article->Abstract->AbstractText as $abstract_text) {
+                            $label = '';
+                            if (isset($abstract_text['Label'])) {
+                                $label = (string) $abstract_text['Label'] . ': ';
+                            }
+                            $abstract .= $label . (string) $abstract_text . "\n\n";
+                        }
+                        $abstracts[$pmid] = trim($abstract);
+                    }
+                }
+            }
+        }
+
+        return $abstracts;
     }
 
     /**

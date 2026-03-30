@@ -68,8 +68,8 @@ class PubMed_Health_Importer {
         // Varsayılan ayarları oluştur
         $this->create_default_settings();
 
-        // Özel yazı tiplerini kaydet
-        $this->register_post_types();
+        // Özel yazı tiplerini kaydet (aktivasyon sırasında doğrudan çağır)
+        $this->register_custom_post_types();
         flush_rewrite_rules();
     }
 
@@ -89,12 +89,12 @@ class PubMed_Health_Importer {
      */
     private function create_tables() {
         global $wpdb;
-        
+
         $charset_collate = $wpdb->get_charset_collate();
-        
+
         // PubMed önbellek tablosu
-        $table_name = $wpdb->prefix . 'pubmed_cache';
-        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        $table_name_cache = $wpdb->prefix . 'pubmed_cache';
+        $sql_cache = "CREATE TABLE IF NOT EXISTS $table_name_cache (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             query_hash varchar(32) NOT NULL,
             query_data longtext NOT NULL,
@@ -105,10 +105,10 @@ class PubMed_Health_Importer {
             KEY query_hash (query_hash),
             KEY expires_at (expires_at)
         ) $charset_collate;";
-        
+
         // PubMed arama tablosu
         $table_name_searches = $wpdb->prefix . 'pubmed_searches';
-        $sql .= "CREATE TABLE IF NOT EXISTS $table_name_searches (
+        $sql_searches = "CREATE TABLE IF NOT EXISTS $table_name_searches (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             name varchar(255) NOT NULL,
             description text,
@@ -119,10 +119,10 @@ class PubMed_Health_Importer {
             updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id)
         ) $charset_collate;";
-        
+
         // PubMed makale meta verileri tablosu
         $table_name_articles = $wpdb->prefix . 'pubmed_articles';
-        $sql .= "CREATE TABLE IF NOT EXISTS $table_name_articles (
+        $sql_articles = "CREATE TABLE IF NOT EXISTS $table_name_articles (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             pubmed_id varchar(20) NOT NULL,
             post_id bigint(20),
@@ -138,9 +138,11 @@ class PubMed_Health_Importer {
             UNIQUE KEY pubmed_id (pubmed_id),
             KEY post_id (post_id)
         ) $charset_collate;";
-        
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        dbDelta($sql);
+        dbDelta($sql_cache);
+        dbDelta($sql_searches);
+        dbDelta($sql_articles);
     }
 
     /**
@@ -152,9 +154,12 @@ class PubMed_Health_Importer {
             'tool' => 'pubmed_health_importer',
             'email' => '',
             'gemini_api_key' => '',
+            'gemini_model' => 'gemini-2.5-flash',
+            'unsplash_api_key' => '',
             'cache_duration' => 86400, // 24 saat
             'auto_import' => 'no',
             'auto_publish' => 'no',
+            'auto_featured_image' => 'yes',
             'seo_optimization' => 'yes',
             'featured_snippet_optimization' => 'yes',
             'faq_generation' => 'yes',
@@ -184,13 +189,6 @@ class PubMed_Health_Importer {
     }
 
     /**
-     * Özel yazı tiplerini kaydet
-     */
-    private function register_post_types() {
-        // Bu fonksiyon init kancasında çağrılacak
-    }
-
-    /**
      * Geçici verileri temizle
      */
     private function clear_transients() {
@@ -200,72 +198,100 @@ class PubMed_Health_Importer {
     }
 
     /**
+     * Tabloların varlığını kontrol et ve gerekirse oluştur
+     */
+    private function check_and_create_tables() {
+        global $wpdb;
+
+        $table_cache = $wpdb->prefix . 'pubmed_cache';
+        $table_searches = $wpdb->prefix . 'pubmed_searches';
+        $table_articles = $wpdb->prefix . 'pubmed_articles';
+
+        // Tabloların var olup olmadığını kontrol et
+        $cache_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_cache'") === $table_cache;
+        $searches_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_searches'") === $table_searches;
+        $articles_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_articles'") === $table_articles;
+
+        // Hiçbiri yoksa oluştur
+        if (!$cache_exists || !$searches_exists || !$articles_exists) {
+            $this->create_tables();
+        }
+    }
+
+    /**
      * Eklentiyi başlat
      */
     public function init() {
-        // Dil dosyalarını yükle
-        load_plugin_textdomain('pubmed-health-importer', false, dirname(plugin_basename(__FILE__)) . '/languages');
-        
         // Gerekli dosyaları dahil et
         $this->includes();
-        
+
         // Admin kancalarını ekle
         if (is_admin()) {
             $this->admin_hooks();
         }
-        
+
         // Ön yüz kancalarını ekle
         $this->frontend_hooks();
-        
-        // Özel yazı tiplerini kaydet
-        $this->register_custom_post_types();
-        
+
+        // Custom post type ve taxonomy kaydı için init hook'unu kullan
+        add_action('init', array($this, 'register_custom_post_types'));
+
         // Kısa kodları kaydet
         $this->register_shortcodes();
-        
-        // AJAX işleyicilerini kaydet
-        $this->register_ajax_handlers();
+
+        // Dil dosyalarını yükle (init hook'undan sonra)
+        add_action('init', array($this, 'load_textdomain'));
+    }
+
+    /**
+     * Dil dosyalarını yükle
+     */
+    public function load_textdomain() {
+        load_plugin_textdomain('pubmed-health-importer', false, dirname(plugin_basename(__FILE__)) . '/languages');
     }
 
     /**
      * Gerekli dosyaları dahil et
      */
     private function includes() {
+        // Tabloların varlığını kontrol et ve yoksa oluştur
+        $this->check_and_create_tables();
+
         // API sınıfı
         require_once PUBMED_HEALTH_IMPORTER_PATH . 'includes/class-pubmed-api.php';
-        
+
         // İçerik işleme sınıfı
         require_once PUBMED_HEALTH_IMPORTER_PATH . 'includes/class-content-processor.php';
-        
+
         // SEO optimizasyon sınıfı
         require_once PUBMED_HEALTH_IMPORTER_PATH . 'includes/class-seo-optimizer.php';
-        
+
         // Gemini AI entegrasyon sınıfı
         require_once PUBMED_HEALTH_IMPORTER_PATH . 'includes/class-gemini-ai.php';
-        
+
+        // Görsel arama ve ekleme sınıfı
+        require_once PUBMED_HEALTH_IMPORTER_PATH . 'includes/class-image-fetcher.php';
+
         // Yardımcı fonksiyonlar
         require_once PUBMED_HEALTH_IMPORTER_PATH . 'includes/functions.php';
         
         // Admin sınıfı
         if (is_admin()) {
             require_once PUBMED_HEALTH_IMPORTER_PATH . 'admin/class-admin.php';
+            // Admin sınıfını başlat
+            new PubMed_Health_Importer_Admin();
         }
-        
-        // Ön yüz sınıfı
-        require_once PUBMED_HEALTH_IMPORTER_PATH . 'public/class-public.php';
+
+        // Ön yüz sınıfı (shortcode desteği için - şu an kullanılmıyor)
+        // require_once PUBMED_HEALTH_IMPORTER_PATH . 'public/class-public.php';
     }
 
     /**
      * Admin kancalarını ekle
+     * Not: Admin sınıfı kendi constructor'ında hook'ları kaydediyor
      */
     private function admin_hooks() {
-        // Admin menüsü
-        add_action('admin_menu', array($this, 'add_admin_menu'));
-        
-        // Admin scriptleri ve stilleri
-        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
-        
-        // Ayarlar bağlantısı
+        // Ayarlar bağlantısı (eklenti listesine ekle)
         add_filter('plugin_action_links_' . plugin_basename(__FILE__), array($this, 'add_settings_link'));
     }
 
@@ -280,7 +306,7 @@ class PubMed_Health_Importer {
     /**
      * Özel yazı tiplerini kaydet
      */
-    private function register_custom_post_types() {
+    public function register_custom_post_types() {
         // Özel yazı tipi: PubMed Makalesi
         $labels = array(
             'name'                  => _x('PubMed Makaleleri', 'Post type general name', 'pubmed-health-importer'),
@@ -401,21 +427,6 @@ class PubMed_Health_Importer {
         
         // PubMed FAQ görüntüleme kısa kodu
         add_shortcode('pubmed_faq', array($this, 'shortcode_faq'));
-    }
-
-    /**
-     * AJAX işleyicilerini kaydet
-     */
-    private function register_ajax_handlers() {
-        // PubMed arama AJAX işleyicisi
-        add_action('wp_ajax_pubmed_search', array($this, 'ajax_pubmed_search'));
-        add_action('wp_ajax_nopriv_pubmed_search', array($this, 'ajax_pubmed_search'));
-        
-        // PubMed içe aktarma AJAX işleyicisi
-        add_action('wp_ajax_pubmed_import', array($this, 'ajax_pubmed_import'));
-        
-        // PubMed içerik zenginleştirme AJAX işleyicisi
-        add_action('wp_ajax_pubmed_enhance_content', array($this, 'ajax_pubmed_enhance_content'));
     }
 
     /**
@@ -701,28 +712,28 @@ class PubMed_Health_Importer {
             wp_send_json_error(array('message' => $article->get_error_message()));
         }
         
-        // İçerik işleme sınıfını başlat
+        // Ayarları al
+        $settings = get_option('pubmed_health_importer_settings');
+
+        // İçerik işleme sınıfını başlat (AI ile içerik oluşturur)
         $content_processor = new Content_Processor();
-        
-        // İçeriği işle
-        $processed_content = $content_processor->process_article($article);
-        
+
+        // İçeriği işle (AI entegrasyonu içeride - true parametresi ile)
+        $processed_content = $content_processor->process_article($article, true);
+
         if (is_wp_error($processed_content)) {
             wp_send_json_error(array('message' => $processed_content->get_error_message()));
         }
-        
+
         // SEO optimizasyon sınıfını başlat
         $seo_optimizer = new SEO_Optimizer();
-        
+
         // İçeriği optimize et
         $optimized_content = $seo_optimizer->optimize_content($processed_content);
-        
+
         if (is_wp_error($optimized_content)) {
             wp_send_json_error(array('message' => $optimized_content->get_error_message()));
         }
-        
-        // Ayarları al
-        $settings = get_option('pubmed_health_importer_settings');
         
         // Yazı tipini belirle
         $post_type = 'pubmed_article';

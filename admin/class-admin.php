@@ -128,7 +128,11 @@ class PubMed_Health_Importer_Admin {
      * Ayarları kaydet
      */
     public function register_settings() {
-        register_setting('pubmed_health_importer_settings', 'pubmed_health_importer_settings');
+        register_setting(
+            'pubmed_health_importer_settings',
+            'pubmed_health_importer_settings',
+            array($this, 'validate_settings')
+        );
         
         // Genel ayarlar bölümü
         add_settings_section(
@@ -219,7 +223,31 @@ class PubMed_Health_Importer_Admin {
             'pubmed_health_importer_settings',
             'pubmed_health_importer_api_section'
         );
-        
+
+        add_settings_field(
+            'gemini_model',
+            __('Gemini AI Modeli', 'pubmed-health-importer'),
+            array($this, 'gemini_model_callback'),
+            'pubmed_health_importer_settings',
+            'pubmed_health_importer_api_section'
+        );
+
+        add_settings_field(
+            'unsplash_api_key',
+            __('Unsplash API Anahtarı', 'pubmed-health-importer'),
+            array($this, 'unsplash_api_key_callback'),
+            'pubmed_health_importer_settings',
+            'pubmed_health_importer_api_section'
+        );
+
+        add_settings_field(
+            'auto_featured_image',
+            __('Otomatik Öne Çıkan Görsel', 'pubmed-health-importer'),
+            array($this, 'auto_featured_image_callback'),
+            'pubmed_health_importer_settings',
+            'pubmed_health_importer_content_section'
+        );
+
         // İçerik ayarları alanları
         add_settings_field(
             'auto_import',
@@ -402,9 +430,80 @@ class PubMed_Health_Importer_Admin {
     public function gemini_api_key_callback() {
         $options = get_option('pubmed_health_importer_settings');
         $gemini_api_key = isset($options['gemini_api_key']) ? $options['gemini_api_key'] : '';
-        
+
         echo '<input type="text" id="gemini_api_key" name="pubmed_health_importer_settings[gemini_api_key]" value="' . esc_attr($gemini_api_key) . '" class="regular-text" />';
         echo '<p class="description">' . __('Gemini AI API anahtarı. İçerik zenginleştirme ve çeviri için kullanılır.', 'pubmed-health-importer') . '</p>';
+    }
+
+    /**
+     * Gemini Model callback
+     */
+    public function gemini_model_callback() {
+        $options = get_option('pubmed_health_importer_settings');
+        $gemini_model = isset($options['gemini_model']) ? $options['gemini_model'] : 'gemini-2.5-flash';
+
+        // Kullanılabilir modeller
+        $models = array(
+            'gemini-2.5-flash' => array(
+                'name' => 'Gemini 2.5 Flash',
+                'description' => '⚡ Hızlı ve uygun fiyatlı - Blog yazıları için önerilen'
+            ),
+            'gemini-2.5-pro' => array(
+                'name' => 'Gemini 2.5 Pro',
+                'description' => '💎 Premium kalite - Daha detaylı ve profesyonel içerik'
+            ),
+        );
+
+        echo '<select id="gemini_model" name="pubmed_health_importer_settings[gemini_model]">';
+
+        foreach ($models as $model_id => $model_info) {
+            $selected = selected($gemini_model, $model_id, false);
+            echo '<option value="' . esc_attr($model_id) . '" ' . $selected . '>' . esc_html($model_info['name']) . '</option>';
+        }
+
+        echo '</select>';
+        echo '<p class="description">' . __('Blog yazısı oluşturmak için kullanılacak Gemini AI modeli.', 'pubmed-health-importer') . '</p>';
+
+        // Model karşılaştırma
+        echo '<div style="margin-top: 15px; padding: 15px; background: #f9f9f9; border-radius: 4px;">';
+        echo '<strong>' . __('Model Karşılaştırması:', 'pubmed-health-importer') . '</strong><br><br>';
+
+        foreach ($models as $model_id => $model_info) {
+            echo '<div style="margin-bottom: 10px;">';
+            echo '<strong>' . esc_html($model_info['name']) . ':</strong> ' . esc_html($model_info['description']);
+            echo '</div>';
+        }
+
+        echo '</div>';
+    }
+
+    /**
+     * Unsplash API anahtarı callback
+     */
+    public function unsplash_api_key_callback() {
+        $options = get_option('pubmed_health_importer_settings');
+        $api_key = isset($options['unsplash_api_key']) ? $options['unsplash_api_key'] : '';
+
+        echo '<input type="text" id="unsplash_api_key" name="pubmed_health_importer_settings[unsplash_api_key]" value="' . esc_attr($api_key) . '" class="regular-text" />';
+        echo '<p class="description">' . __('Unsplash API anahtarı. Konuya uygun görseller otomatik eklemek için gereklidir. <a href="https://unsplash.com/developers" target="_blank">Ücretsiz alabilirsiniz</a>.', 'pubmed-health-importer') . '</p>';
+
+        // API anahtarı test butonu
+        echo '<button type="button" id="test-unsplash-api" class="button button-secondary" style="margin-top: 5px;">' . __('API Anahtarını Test Et', 'pubmed-health-importer') . '</button>';
+        echo '<span id="unsplash-api-result" style="margin-left: 10px;"></span>';
+    }
+
+    /**
+     * Otomatik öne çıkan görsel callback
+     */
+    public function auto_featured_image_callback() {
+        $options = get_option('pubmed_health_importer_settings');
+        $auto_featured_image = isset($options['auto_featured_image']) ? $options['auto_featured_image'] : 'yes';
+
+        echo '<select id="auto_featured_image" name="pubmed_health_importer_settings[auto_featured_image]">';
+        echo '<option value="yes" ' . selected($auto_featured_image, 'yes', false) . '>' . __('Evet', 'pubmed-health-importer') . '</option>';
+        echo '<option value="no" ' . selected($auto_featured_image, 'no', false) . '>' . __('Hayır', 'pubmed-health-importer') . '</option>';
+        echo '</select>';
+        echo '<p class="description">' . __('İçe aktarılan makalelere konuya uygun görsel ekleyin (Unsplash API gerekli).', 'pubmed-health-importer') . '</p>';
     }
 
     /**
@@ -559,7 +658,10 @@ class PubMed_Health_Importer_Admin {
     public function ajax_pubmed_search() {
         // Nonce kontrolü
         check_ajax_referer('pubmed_health_importer_nonce', 'nonce');
-        
+
+        // PHP zaman aşımını artır
+        @set_time_limit(120);
+
         // Parametreleri al
         $query = isset($_POST['query']) ? sanitize_text_field($_POST['query']) : '';
         $count = isset($_POST['count']) ? intval($_POST['count']) : 10;
@@ -587,7 +689,10 @@ class PubMed_Health_Importer_Admin {
     public function ajax_pubmed_import() {
         // Nonce kontrolü
         check_ajax_referer('pubmed_health_importer_nonce', 'nonce');
-        
+
+        // PHP zaman aşımını artır (AI içerik oluşturma uzun sürebilir)
+        @set_time_limit(180);
+
         // Yönetici yetkisi kontrolü
         if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => __('Bu işlemi gerçekleştirmek için yetkiniz yok.', 'pubmed-health-importer')));
@@ -610,28 +715,28 @@ class PubMed_Health_Importer_Admin {
             wp_send_json_error(array('message' => $article->get_error_message()));
         }
         
-        // İçerik işleme sınıfını başlat
+        // Ayarları al
+        $settings = get_option('pubmed_health_importer_settings');
+
+        // İçerik işleme sınıfını başlat (AI ile içerik oluşturur)
         $content_processor = new Content_Processor();
-        
-        // İçeriği işle
-        $processed_content = $content_processor->process_article($article);
-        
+
+        // İçeriği işle (AI entegrasyonu içeride - true parametresi ile)
+        $processed_content = $content_processor->process_article($article, true);
+
         if (is_wp_error($processed_content)) {
             wp_send_json_error(array('message' => $processed_content->get_error_message()));
         }
-        
+
         // SEO optimizasyon sınıfını başlat
         $seo_optimizer = new SEO_Optimizer();
-        
+
         // İçeriği optimize et
         $optimized_content = $seo_optimizer->optimize_content($processed_content);
-        
+
         if (is_wp_error($optimized_content)) {
             wp_send_json_error(array('message' => $optimized_content->get_error_message()));
         }
-        
-        // Ayarları al
-        $settings = get_option('pubmed_health_importer_settings');
         
         // Yazı tipini belirle
         $post_type = 'pubmed_article';
@@ -696,39 +801,7 @@ class PubMed_Health_Importer_Admin {
                 'mesh_terms' => json_encode($article['mesh_terms']),
             )
         );
-        
-        // İçerik zenginleştirme etkinse ve Gemini API anahtarı varsa
-        if ($settings['content_enhancement'] === 'yes' && !empty($settings['gemini_api_key'])) {
-            // Gemini AI sınıfını başlat
-            $gemini_ai = new Gemini_AI($settings['gemini_api_key']);
-            
-            // İçeriği zenginleştir
-            $enhanced_content = $gemini_ai->enhance_content($optimized_content['content'], $optimized_content['title']);
-            
-            if (!is_wp_error($enhanced_content)) {
-                // Yazıyı güncelle
-                $post_data = array(
-                    'ID' => $post_id,
-                    'post_content' => $enhanced_content['content'],
-                );
-                
-                wp_update_post($post_data);
-                
-                // Meta verileri güncelle
-                if (!empty($enhanced_content['faq'])) {
-                    update_post_meta($post_id, 'pubmed_faq', $enhanced_content['faq']);
-                }
-                
-                if (!empty($enhanced_content['schema_markup'])) {
-                    update_post_meta($post_id, 'pubmed_schema_markup', $enhanced_content['schema_markup']);
-                }
-                
-                if (!empty($enhanced_content['featured_snippet'])) {
-                    update_post_meta($post_id, 'pubmed_featured_snippet', $enhanced_content['featured_snippet']);
-                }
-            }
-        }
-        
+
         wp_send_json_success(array(
             'message' => __('Makale başarıyla içe aktarıldı.', 'pubmed-health-importer'),
             'post_id' => $post_id,
@@ -1013,22 +1086,22 @@ class PubMed_Health_Importer_Admin {
                     continue;
                 }
                 
-                // İçerik işleme sınıfını başlat
+                // İçerik işleme sınıfını başlat (AI ile içerik oluşturur)
                 $content_processor = new Content_Processor();
-                
-                // İçeriği işle
-                $processed_content = $content_processor->process_article($article_data);
-                
+
+                // İçeriği işle (AI entegrasyonu içeride - true parametresi ile)
+                $processed_content = $content_processor->process_article($article_data, true);
+
                 if (is_wp_error($processed_content)) {
                     continue;
                 }
-                
+
                 // SEO optimizasyon sınıfını başlat
                 $seo_optimizer = new SEO_Optimizer();
-                
+
                 // İçeriği optimize et
                 $optimized_content = $seo_optimizer->optimize_content($processed_content);
-                
+
                 if (is_wp_error($optimized_content)) {
                     continue;
                 }
@@ -1078,7 +1151,17 @@ class PubMed_Health_Importer_Admin {
                 if (!empty($optimized_content['tags'])) {
                     wp_set_object_terms($post_id, $optimized_content['tags'], 'pubmed_tag');
                 }
-                
+
+                // Otomatik öne çıkan görsel ekle
+                if (isset($settings['auto_featured_image']) && $settings['auto_featured_image'] === 'yes') {
+                    $image_fetcher = new Image_Fetcher();
+                    $image_fetcher->fetch_and_attach_image(
+                        $optimized_content['title'],
+                        $article_data['mesh_terms'],
+                        $post_id
+                    );
+                }
+
                 // Veritabanına kaydet
                 $wpdb->insert(
                     $wpdb->prefix . 'pubmed_articles',
@@ -1093,39 +1176,7 @@ class PubMed_Health_Importer_Admin {
                         'mesh_terms' => json_encode($article_data['mesh_terms']),
                     )
                 );
-                
-                // İçerik zenginleştirme etkinse ve Gemini API anahtarı varsa
-                if ($settings['content_enhancement'] === 'yes' && !empty($settings['gemini_api_key'])) {
-                    // Gemini AI sınıfını başlat
-                    $gemini_ai = new Gemini_AI($settings['gemini_api_key']);
-                    
-                    // İçeriği zenginleştir
-                    $enhanced_content = $gemini_ai->enhance_content($optimized_content['content'], $optimized_content['title']);
-                    
-                    if (!is_wp_error($enhanced_content)) {
-                        // Yazıyı güncelle
-                        $post_data = array(
-                            'ID' => $post_id,
-                            'post_content' => $enhanced_content['content'],
-                        );
-                        
-                        wp_update_post($post_data);
-                        
-                        // Meta verileri güncelle
-                        if (!empty($enhanced_content['faq'])) {
-                            update_post_meta($post_id, 'pubmed_faq', $enhanced_content['faq']);
-                        }
-                        
-                        if (!empty($enhanced_content['schema_markup'])) {
-                            update_post_meta($post_id, 'pubmed_schema_markup', $enhanced_content['schema_markup']);
-                        }
-                        
-                        if (!empty($enhanced_content['featured_snippet'])) {
-                            update_post_meta($post_id, 'pubmed_featured_snippet', $enhanced_content['featured_snippet']);
-                        }
-                    }
-                }
-                
+
                 $imported_count++;
             }
             
@@ -1245,22 +1296,22 @@ class PubMed_Health_Importer_Admin {
                     continue;
                 }
                 
-                // İçerik işleme sınıfını başlat
+                // İçerik işleme sınıfını başlat (AI ile içerik oluşturur)
                 $content_processor = new Content_Processor();
-                
-                // İçeriği işle
-                $processed_content = $content_processor->process_article($article_data);
-                
+
+                // İçeriği işle (AI entegrasyonu içeride - true parametresi ile)
+                $processed_content = $content_processor->process_article($article_data, true);
+
                 if (is_wp_error($processed_content)) {
                     continue;
                 }
-                
+
                 // SEO optimizasyon sınıfını başlat
                 $seo_optimizer = new SEO_Optimizer();
-                
+
                 // İçeriği optimize et
                 $optimized_content = $seo_optimizer->optimize_content($processed_content);
-                
+
                 if (is_wp_error($optimized_content)) {
                     continue;
                 }
@@ -1310,7 +1361,17 @@ class PubMed_Health_Importer_Admin {
                 if (!empty($optimized_content['tags'])) {
                     wp_set_object_terms($post_id, $optimized_content['tags'], 'pubmed_tag');
                 }
-                
+
+                // Otomatik öne çıkan görsel ekle
+                if (isset($settings['auto_featured_image']) && $settings['auto_featured_image'] === 'yes') {
+                    $image_fetcher = new Image_Fetcher();
+                    $image_fetcher->fetch_and_attach_image(
+                        $optimized_content['title'],
+                        $article_data['mesh_terms'],
+                        $post_id
+                    );
+                }
+
                 // Veritabanına kaydet
                 $wpdb->insert(
                     $wpdb->prefix . 'pubmed_articles',
@@ -1325,39 +1386,74 @@ class PubMed_Health_Importer_Admin {
                         'mesh_terms' => json_encode($article_data['mesh_terms']),
                     )
                 );
-                
-                // İçerik zenginleştirme etkinse ve Gemini API anahtarı varsa
-                if ($settings['content_enhancement'] === 'yes' && !empty($settings['gemini_api_key'])) {
-                    // Gemini AI sınıfını başlat
-                    $gemini_ai = new Gemini_AI($settings['gemini_api_key']);
-                    
-                    // İçeriği zenginleştir
-                    $enhanced_content = $gemini_ai->enhance_content($optimized_content['content'], $optimized_content['title']);
-                    
-                    if (!is_wp_error($enhanced_content)) {
-                        // Yazıyı güncelle
-                        $post_data = array(
-                            'ID' => $post_id,
-                            'post_content' => $enhanced_content['content'],
-                        );
-                        
-                        wp_update_post($post_data);
-                        
-                        // Meta verileri güncelle
-                        if (!empty($enhanced_content['faq'])) {
-                            update_post_meta($post_id, 'pubmed_faq', $enhanced_content['faq']);
-                        }
-                        
-                        if (!empty($enhanced_content['schema_markup'])) {
-                            update_post_meta($post_id, 'pubmed_schema_markup', $enhanced_content['schema_markup']);
-                        }
-                        
-                        if (!empty($enhanced_content['featured_snippet'])) {
-                            update_post_meta($post_id, 'pubmed_featured_snippet', $enhanced_content['featured_snippet']);
-                        }
-                    }
-                }
             }
         }
+    }
+
+    /**
+     * Ayarları doğrula ve temizle
+     *
+     * @param array $input Girilen ayarlar
+     * @return array Temizlenmiş ayarlar
+     */
+    public function validate_settings($input) {
+        // Mevcut ayarları al
+        $options = get_option('pubmed_health_importer_settings', array());
+
+        // API anahtarlarını temizle
+        if (isset($input['api_key'])) {
+            $options['api_key'] = sanitize_text_field($input['api_key']);
+        }
+        if (isset($input['tool'])) {
+            $options['tool'] = sanitize_text_field($input['tool']);
+        }
+        if (isset($input['email'])) {
+            $options['email'] = sanitize_email($input['email']);
+        }
+        if (isset($input['gemini_api_key'])) {
+            $options['gemini_api_key'] = sanitize_text_field($input['gemini_api_key']);
+        }
+        if (isset($input['unsplash_api_key'])) {
+            $options['unsplash_api_key'] = sanitize_text_field($input['unsplash_api_key']);
+        }
+
+        // Model seçimi
+        if (isset($input['gemini_model']) && in_array($input['gemini_model'], array('gemini-2.5-flash', 'gemini-2.5-pro'))) {
+            $options['gemini_model'] = $input['gemini_model'];
+        }
+
+        // Onay kutuları ve seçimler
+        $options['auto_import'] = isset($input['auto_import']) && $input['auto_import'] === 'yes' ? 'yes' : 'no';
+        $options['auto_publish'] = isset($input['auto_publish']) && $input['auto_publish'] === 'yes' ? 'yes' : 'no';
+        $options['content_enhancement'] = isset($input['content_enhancement']) && $input['content_enhancement'] === 'yes' ? 'yes' : 'no';
+        $options['seo_optimization'] = isset($input['seo_optimization']) && $input['seo_optimization'] === 'yes' ? 'yes' : 'no';
+        $options['featured_snippet_optimization'] = isset($input['featured_snippet_optimization']) && $input['featured_snippet_optimization'] === 'yes' ? 'yes' : 'no';
+        $options['faq_generation'] = isset($input['faq_generation']) && $input['faq_generation'] === 'yes' ? 'yes' : 'no';
+        $options['auto_featured_image'] = isset($input['auto_featured_image']) && $input['auto_featured_image'] === 'yes' ? 'yes' : 'no';
+
+        // Sayısal değerler
+        if (isset($input['cache_duration'])) {
+            $options['cache_duration'] = absint($input['cache_duration']);
+            if ($options['cache_duration'] < 3600) {
+                $options['cache_duration'] = 3600; // Minimum 1 saat
+            }
+        }
+
+        // Varsayılan yazar
+        if (isset($input['default_author'])) {
+            $options['default_author'] = absint($input['default_author']);
+        }
+
+        // Varsayılan kategori
+        if (isset($input['default_category'])) {
+            $options['default_category'] = sanitize_text_field($input['default_category']);
+        }
+
+        // MeSH terimleri
+        if (isset($input['mesh_terms']) && is_array($input['mesh_terms'])) {
+            $options['mesh_terms'] = array_filter(array_map('sanitize_text_field', $input['mesh_terms']));
+        }
+
+        return $options;
     }
 }

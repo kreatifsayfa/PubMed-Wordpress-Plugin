@@ -26,11 +26,29 @@ class Gemini_AI {
     private $api_key = '';
 
     /**
-     * API temel URL'si
+     * Seçili model
      *
      * @var string
      */
-    private $base_url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+    private $model = 'gemini-2.5-flash';
+
+    /**
+     * Kullanılabilir modeller
+     *
+     * @var array
+     */
+    private $available_models = array(
+        'gemini-2.5-flash' => array(
+            'name' => 'Gemini 2.5 Flash',
+            'description' => 'Hızlı ve uygun fiyatlı - Blog yazıları için önerilen',
+            'endpoint' => 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+        ),
+        'gemini-2.5-pro' => array(
+            'name' => 'Gemini 2.5 Pro',
+            'description' => 'Premium kalite - Daha detaylı ve profesyonel içerik',
+            'endpoint' => 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
+        ),
+    );
 
     /**
      * Constructor
@@ -39,15 +57,43 @@ class Gemini_AI {
      */
     public function __construct($api_key = '') {
         $this->api_key = $api_key;
-        
+
         if (empty($this->api_key)) {
             // Ayarlardan API anahtarını al
             $settings = get_option('pubmed_health_importer_settings');
-            
+
             if ($settings && isset($settings['gemini_api_key'])) {
                 $this->api_key = $settings['gemini_api_key'];
             }
+
+            // Model seçimini al
+            if ($settings && isset($settings['gemini_model'])) {
+                $this->model = $settings['gemini_model'];
+            }
         }
+    }
+
+    /**
+     * API endpoint URL'sini döndürür
+     *
+     * @return string API endpoint URL
+     */
+    private function get_api_url() {
+        if (isset($this->available_models[$this->model])) {
+            return $this->available_models[$this->model]['endpoint'];
+        }
+
+        // Varsayılan olarak Flash modelini kullan
+        return $this->available_models['gemini-2.5-flash']['endpoint'];
+    }
+
+    /**
+     * Kullanılabilir modelleri döndürür
+     *
+     * @return array Kullanılabilir modeller
+     */
+    public function get_available_models() {
+        return $this->available_models;
     }
 
     /**
@@ -61,44 +107,424 @@ class Gemini_AI {
         if (empty($this->api_key)) {
             return new WP_Error('missing_api_key', __('Gemini AI API anahtarı eksik.', 'pubmed-health-importer'));
         }
-        
+
         // HTML etiketlerini kaldır
         $plain_content = strip_tags($content);
-        
+
         // İçeriği zenginleştir
         $enhanced_content = $this->generate_enhanced_content($plain_content, $title);
-        
+
         if (is_wp_error($enhanced_content)) {
             return $enhanced_content;
         }
-        
+
         // FAQ oluştur
         $faq = $this->generate_faq_content($plain_content, $title);
-        
+
         if (is_wp_error($faq)) {
             $faq = array();
         }
-        
+
         // Featured snippet için içerik oluştur
         $featured_snippet = $this->generate_featured_snippet_content($plain_content, $title);
-        
+
         if (is_wp_error($featured_snippet)) {
             $featured_snippet = array();
         }
-        
+
         // Şema markup oluştur
         $schema_markup = $this->generate_schema_markup($enhanced_content, $title, $faq);
-        
+
         if (is_wp_error($schema_markup)) {
             $schema_markup = '';
         }
-        
+
         return array(
             'content' => $enhanced_content,
             'faq' => $faq,
             'featured_snippet' => $featured_snippet,
             'schema_markup' => $schema_markup,
         );
+    }
+
+    /**
+     * Blog yazısı oluşturur (Ana fonksiyon)
+     *
+     * @param array $article Makale verileri
+     * @param bool $translate_to_tr Türkçe'ye çevir (varsayılan: true)
+     * @return array|WP_Error Oluşturulan blog yazısı veya hata
+     */
+    public function generate_blog_post($article, $translate_to_tr = true) {
+        if (empty($this->api_key)) {
+            return new WP_Error('missing_api_key', __('Gemini AI API anahtarı eksik.', 'pubmed-health-importer'));
+        }
+
+        // Başlık ve özet
+        $title = isset($article['title']) ? $article['title'] : '';
+        $abstract = isset($article['abstract']) ? $article['abstract'] : '';
+        $mesh_terms = isset($article['mesh_terms']) ? implode(', ', $article['mesh_terms']) : '';
+
+        if (empty($title) || empty($abstract)) {
+            return new WP_Error('insufficient_data', __('Makale verileri yetersiz.', 'pubmed-health-importer'));
+        }
+
+        // Adım 1: Blog yazısı oluştur (Türkçe)
+        $blog_content = $this->create_blog_content_turkish($title, $abstract, $mesh_terms);
+
+        if (is_wp_error($blog_content)) {
+            return $blog_content;
+        }
+
+        // Adım 2: Başlık için Türkçe versiyon oluştur
+        $turkish_title = $this->translate_title($title);
+
+        if (is_wp_error($turkish_title)) {
+            $turkish_title = $title;
+        }
+
+        // Adım 3: FAQ oluştur
+        $faq = $this->generate_faq_for_blog($blog_content, $turkish_title);
+
+        if (is_wp_error($faq)) {
+            $faq = array();
+        }
+
+        // Adım 4: SEO açıklaması oluştur
+        $seo_description = $this->generate_seo_description($blog_content, $turkish_title);
+
+        if (is_wp_error($seo_description)) {
+            $seo_description = $this->create_excerpt_from_content($blog_content);
+        }
+
+        // Adım 5: Schema markup oluştur
+        $schema_markup = $this->generate_schema_for_blog($turkish_title, $blog_content, $seo_description, $faq);
+
+        if (is_wp_error($schema_markup)) {
+            $schema_markup = '';
+        }
+
+        return array(
+            'title' => $turkish_title,
+            'original_title' => $title,
+            'content' => $blog_content,
+            'excerpt' => $seo_description,
+            'faq' => $faq,
+            'schema_markup' => $schema_markup,
+        );
+    }
+
+    /**
+     * Türkçe blog içeriği oluşturur
+     *
+     * @param string $title Orijinal başlık
+     * @param string $abstract Özet
+     * @param string $mesh_terms MeSH terimleri
+     * @return string|WP_Error Türkçe blog içeriği veya hata
+     */
+    private function create_blog_content_turkish($title, $abstract, $mesh_terms) {
+        $prompt = <<<PROMPT
+Sen uzman bir sağlık yazarısın. Aşağıdaki tıbbi makaleyi, Türkçe kapsamlı ve SEO dostu bir blog yazısına dönüştür.
+
+KURALLAR:
+1. İçerik TAMAMEN TÜRKÇE olmalı
+2. Hedef kitle: Kadın ve bebek sağlığı konularında bilgi arayan Türkçe okuyucular
+3. Google Featured Snippet (sıfır snippet) için optimize et
+4. Minimum 1500 kelime
+5. HTML formatında, başlıklar için h2 ve h3 etiketlerini kullan
+6. Engaging ve bilgilendirici bir giriş yaz
+7. Her bölümü açıklayıcı başlıklarla ayır
+8. Önemli bilgileri vurgula (kalın, italik)
+9. Liste ve madde işaretleri kullan
+10. Pratik öneriler ve ipuçları ekle
+11. Sonuç bölümü ekle
+
+YAPILACAKLAR:
+- Başlığa dikkat çekici bir Türkçe başlık oluştur
+- Giriş: Okuyucuyu içine çeken, soru soran bir giriş
+- Ana Başlıklar: Konuyu detaylı işleyen h2 başlıkları
+- Alt Başlıklar: Detayları anlatan h3 başlıkları
+- İpuçları: Pratik tavsiyeler için "İpucu" kutuları
+- SSS: Sıkça Sorulan Sorular bölümü
+- Kaynakça: Bilimsel referans
+
+MAKALE BİLGİLERİ:
+Başlık: $title
+Özet: $abstract
+MeŞ Terimleri: $mesh_terms
+
+Şimdi bu bilgileri kullanarak kapsamlı bir Türkçe blog yazısı yaz. Sadece blog içeriğini döndür, başka açıklama yapma.
+PROMPT;
+
+        $response = $this->send_api_request($prompt);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        // HTML içeriğini temizle ve düzenle
+        $blog_content = $this->clean_html_content($response);
+
+        // Stilleri ekle
+        $blog_content = $this->add_blog_styles($blog_content);
+
+        return $blog_content;
+    }
+
+    /**
+     * Blog içeriğine stiller ekler
+     *
+     * @param string $content İçerik
+     * @return string Stiller eklenmiş içerik
+     */
+    private function add_blog_styles($content) {
+        $styled_content = '<div class="gemini-blog-content" style="line-height: 1.8; color: #333;">';
+        $styled_content .= $content;
+        $styled_content .= '</div>';
+
+        return $styled_content;
+    }
+
+    /**
+     * Başlığı Türkçe'ye çevirir
+     *
+     * @param string $title Orijinal başlık
+     * @return string|WP_Error Türkçe başlık veya hata
+     */
+    private function translate_title($title) {
+        $prompt = "Aşağıdaki tıbbi makale başlığını Türkçe'ye çevir. Çeviri doğal, SEO dostu ve Türk okuyucular için anlaşılır olmalı. Sadece çevrilmiş başlığı döndür, başka bir şey ekleme.\n\nBaşlık: $title";
+
+        $response = $this->send_api_request($prompt);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        return trim(strip_tags($response));
+    }
+
+    /**
+     * Blog için FAQ oluşturur
+     *
+     * @param string $content Blog içeriği
+     * @param string $title Başlık
+     * @return array|WP_Error FAQ verileri veya hata
+     */
+    private function generate_faq_for_blog($content, $title) {
+        $plain_content = strip_tags($content);
+
+        $prompt = <<<PROMPT
+Aşağıdaki Türkçe blog yazısı için 8-10 adet Sıkça Sorulan Soru (SSS) ve cevaplar oluştur.
+
+KURALLAR:
+1. Sorular TAMAMEN TÜRKÇE olmalı
+2. Sorular Google'da Featured Snippet (sıfır snippet) için optimize edilmiş olmalı
+3. Her soru 1-2 cümle, her cevap 2-4 cümle olmalı
+4. Sorular "Nedir?", "Nasıl yapılır?", "Nelere dikkat edilmelidir?" formatında olmalı
+5. Cevaplar bilgilendirici, doğru ve pratik olmalı
+6. JSON formatında döndür
+
+Yanıt formatı:
+```json
+[
+  {"question": "Soru 1", "answer": "Cevap 1"},
+  {"question": "Soru 2", "answer": "Cevap 2"}
+]
+```
+
+Başlık: $title
+İçerik: $plain_content
+
+Sadece JSON'ı döndür, başka bir şey ekleme.
+PROMPT;
+
+        $response = $this->send_api_request($prompt);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        return $this->parse_json_response($response);
+    }
+
+    /**
+     * SEO açıklaması oluşturur
+     *
+     * @param string $content İçerik
+     * @param string $title Başlık
+     * @return string|WP_Error SEO açıklaması veya hata
+     */
+    private function generate_seo_description($content, $title) {
+        $plain_content = strip_tags($content);
+        $excerpt = substr($plain_content, 0, 500);
+
+        $prompt = "Aşağıdaki blog yazısı için 150-160 karakterlik SEO dostu bir meta açıklaması oluştur (Türkçe). Açıklama okuyucuyu tıklamaya teşvik etmeli. Sadece açıklamayı döndür, başka bir şey ekleme.\n\nBaşlık: $title\n\nİçerik: $excerpt";
+
+        $response = $this->send_api_request($prompt);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        return trim(strip_tags($response));
+    }
+
+    /**
+     * İçerikten excerpt oluşturur
+     *
+     * @param string $content İçerik
+     * @return string Excerpt
+     */
+    private function create_excerpt_from_content($content) {
+        $plain_content = strip_tags($content);
+        $plain_content = preg_replace('/\s+/', ' ', $plain_content);
+
+        if (strlen($plain_content) > 160) {
+            $excerpt = substr($plain_content, 0, 157);
+            $last_space = strrpos($excerpt, ' ');
+            if ($last_space !== false) {
+                $excerpt = substr($excerpt, 0, $last_space);
+            }
+            $excerpt .= '...';
+        } else {
+            $excerpt = $plain_content;
+        }
+
+        return $excerpt;
+    }
+
+    /**
+     * Blog için şema markup oluşturur
+     *
+     * @param string $title Başlık
+     * @param string $content İçerik
+     * @param string $description Açıklama
+     * @param array $faq FAQ verileri
+     * @return string Schema markup JSON
+     */
+    private function generate_schema_for_blog($title, $content, $description, $faq) {
+        $plain_content = strip_tags($content);
+        $plain_content = substr($plain_content, 0, 500);
+
+        $schema = array(
+            '@context' => 'https://schema.org',
+            '@graph' => array()
+        );
+
+        // MedicalWebPage
+        $schema['@graph'][] = array(
+            '@type' => 'MedicalWebPage',
+            '@id' => get_permalink() . '#medicalwebpage',
+            'url' => get_permalink(),
+            'name' => $title,
+            'description' => $description,
+            'isPartOf' => array(
+                '@id' => get_permalink() . '#webpage'
+            ),
+            'about' => array(
+                '@type' => 'MedicalTopic',
+                'name' => 'Kadın ve Bebek Sağlığı'
+            )
+        );
+
+        // Article
+        $schema['@graph'][] = array(
+            '@type' => 'Article',
+            '@id' => get_permalink() . '#article',
+            'headline' => $title,
+            'description' => $description,
+            'author' => array(
+                '@type' => 'Organization',
+                'name' => get_bloginfo('name')
+            ),
+            'publisher' => array(
+                '@type' => 'Organization',
+                'name' => get_bloginfo('name'),
+                'logo' => array(
+                    '@type' => 'ImageObject',
+                    'url' => get_site_icon_url() ? get_site_icon_url() : ''
+                )
+            ),
+            'datePublished' => current_time('Y-m-d'),
+            'dateModified' => current_time('Y-m-d'),
+            'mainEntityOfPage' => array(
+                '@type' => 'WebPage',
+                '@id' => get_permalink()
+            )
+        );
+
+        // FAQPage
+        if (!empty($faq) && is_array($faq)) {
+            $faq_entities = array();
+            foreach ($faq as $item) {
+                if (isset($item['question']) && isset($item['answer'])) {
+                    $faq_entities[] = array(
+                        '@type' => 'Question',
+                        'name' => $item['question'],
+                        'acceptedAnswer' => array(
+                            '@type' => 'Answer',
+                            'text' => $item['answer']
+                        )
+                    );
+                }
+            }
+
+            if (!empty($faq_entities)) {
+                $schema['@graph'][] = array(
+                    '@type' => 'FAQPage',
+                    '@id' => get_permalink() . '#faqpage',
+                    'mainEntity' => $faq_entities
+                );
+            }
+        }
+
+        // BreadcrumbList
+        $schema['@graph'][] = array(
+            '@type' => 'BreadcrumbList',
+            'itemListElement' => array(
+                array(
+                    '@type' => 'ListItem',
+                    'position' => 1,
+                    'name' => 'Ana Sayfa',
+                    'item' => home_url()
+                ),
+                array(
+                    '@type' => 'ListItem',
+                    'position' => 2,
+                    'name' => $title,
+                    'item' => get_permalink()
+                )
+            )
+        );
+
+        return json_encode($schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Blog yazısı için görsel önerisi oluşturur
+     *
+     * @param string $title Başlık
+     * @return array|WP_Error Görsel önerileri veya hata
+     */
+    public function generate_image_prompts($title) {
+        if (empty($this->api_key)) {
+            return new WP_Error('missing_api_key', __('Gemini AI API anahtarı eksik.', 'pubmed-health-importer'));
+        }
+
+        $prompt = "Aşağıdaki sağlık blog yazısı başlığı için 3 adet görsel oluşturma istemi (prompt) yaz. Her prompt İngilizce olmalı ve DALL-E, Midjourney veya Stable Diffusion için uygun olmalı. JSON formatında döndür.\n\nBaşlık: $title\n\nFormat:\n```json\n{\"prompts\": [\"prompt1\", \"prompt2\", \"prompt3\"]}\n```\n\nSadece JSON'ı döndür.";
+
+        $response = $this->send_api_request($prompt);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        $data = $this->parse_json_response($response);
+
+        if (is_wp_error($data)) {
+            return $data;
+        }
+
+        return isset($data['prompts']) ? $data['prompts'] : array();
     }
 
     /**
@@ -244,8 +670,8 @@ class Gemini_AI {
      * @return string|WP_Error API yanıtı veya hata
      */
     private function send_api_request($prompt) {
-        // API URL'si
-        $url = $this->base_url . '?key=' . $this->api_key;
+        // API URL'si (seçilen modele göre dinamik)
+        $url = $this->get_api_url() . '?key=' . $this->api_key;
         
         // İstek verileri
         $data = array(

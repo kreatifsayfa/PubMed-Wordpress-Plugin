@@ -49,21 +49,44 @@ if (!defined('ABSPATH')) {
     
     <div class="pubmed-health-importer-stats">
         <h2><?php _e('İstatistikler', 'pubmed-health-importer'); ?></h2>
-        
+
         <?php
         global $wpdb;
-        
-        // İçe aktarılan makale sayısı
-        $article_count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}pubmed_articles");
-        
-        // Zamanlanmış arama sayısı
-        $search_count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}pubmed_searches");
-        
-        // Son içe aktarılan makale
-        $last_article = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}pubmed_articles ORDER BY id DESC LIMIT 1");
-        
-        // Son çalıştırılan zamanlanmış arama
-        $last_search = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}pubmed_searches ORDER BY last_run DESC LIMIT 1");
+
+        // Tablo varlığını kontrol et
+        $tables_exist = true;
+        $table_articles = $wpdb->prefix . 'pubmed_articles';
+        $table_searches = $wpdb->prefix . 'pubmed_searches';
+
+        // Tabloların var olup olmadığını kontrol et
+        $tables_exist = ($wpdb->get_var("SHOW TABLES LIKE '$table_articles'") === $table_articles)
+                     && ($wpdb->get_var("SHOW TABLES LIKE '$table_searches'") === $table_searches);
+
+        if (!$tables_exist) {
+            echo '<div class="notice notice-error"><p>';
+            echo '<strong>' . __('Veritabanı tabloları eksik!', 'pubmed-health-importer') . '</strong><br>';
+            echo __('Lütfen eklentiyi deaktive edip tekrar aktive edin veya ', 'pubmed-health-importer');
+            echo '<a href="' . plugin_dir_url(__FILE__) . '../../create-tables-manually.php" target="_blank">';
+            echo __('bu bağlantıya tıklayarak', 'pubmed-health-importer');
+            echo '</a> ' . __('tabloları manuel olarak oluşturun.', 'pubmed-health-importer');
+            echo '</p></div>';
+            $article_count = 0;
+            $search_count = 0;
+            $last_article = null;
+            $last_search = null;
+        } else {
+            // İçe aktarılan makale sayısı
+            $article_count = $wpdb->get_var("SELECT COUNT(*) FROM $table_articles");
+
+            // Zamanlanmış arama sayısı
+            $search_count = $wpdb->get_var("SELECT COUNT(*) FROM $table_searches");
+
+            // Son içe aktarılan makale
+            $last_article = $wpdb->get_row("SELECT * FROM $table_articles ORDER BY id DESC LIMIT 1");
+
+            // Son çalıştırılan zamanlanmış arama
+            $last_search = $wpdb->get_row("SELECT * FROM $table_searches ORDER BY last_run DESC LIMIT 1");
+        }
         ?>
         
         <div class="pubmed-health-importer-stat-cards">

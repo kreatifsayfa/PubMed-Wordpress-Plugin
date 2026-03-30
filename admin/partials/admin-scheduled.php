@@ -14,7 +14,13 @@ if (!defined('ABSPATH')) {
 // Zamanlanmış aramaları al
 global $wpdb;
 $table_name = $wpdb->prefix . 'pubmed_searches';
-$searches = $wpdb->get_results("SELECT * FROM $table_name ORDER BY id DESC");
+
+// Tablo varlığını kontrol et
+if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name) {
+    $searches = $wpdb->get_results("SELECT * FROM $table_name ORDER BY id DESC");
+} else {
+    $searches = array();
+}
 ?>
 
 <div class="wrap pubmed-health-importer-admin">

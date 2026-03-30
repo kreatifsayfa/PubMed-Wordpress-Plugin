@@ -40,21 +40,22 @@ jQuery(document).ready(function($) {
                 query: query,
                 count: count
             },
+            timeout: 45000, // 45 saniye
             success: function(response) {
                 $button.prop('disabled', false);
                 $spinner.removeClass('is-active');
-                
+
                 if (response.success) {
                     var results = response.data.results;
-                    
+
                     // Sonuç sayısını göster
                     $('#pubmed-results-count').html('<p>' + results.total + ' sonuç bulundu.</p>');
-                    
+
                     // Sonuçları listele
                     if (results.articles && results.articles.length > 0) {
                         $.each(results.articles, function(index, article) {
                             var template = $('#pubmed-result-template').html();
-                            
+
                             // Template değişkenlerini değiştir
                             template = template.replace('{{ id }}', article.id);
                             template = template.replace('{{ title }}', article.title);
@@ -62,10 +63,10 @@ jQuery(document).ready(function($) {
                             template = template.replace('{{ journal }}', article.journal);
                             template = template.replace('{{ publication_date }}', article.publication_date);
                             template = template.replace('{{ abstract }}', article.abstract || 'Özet bulunamadı.');
-                            
+
                             $('#pubmed-results-list').append(template);
                         });
-                        
+
                         $('#pubmed-search-results').show();
                     } else {
                         $('#pubmed-results-count').html('<p>Sonuç bulunamadı.</p>');
@@ -76,11 +77,15 @@ jQuery(document).ready(function($) {
                     $('#pubmed-search-error').show();
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
                 $button.prop('disabled', false);
                 $spinner.removeClass('is-active');
-                
-                $('#pubmed-search-error').find('p').text('Bir hata oluştu. Lütfen daha sonra tekrar deneyin.');
+
+                var errorMsg = 'Bir hata oluştu. Lütfen tekrar deneyin.';
+                if (status === 'timeout') {
+                    errorMsg = 'PubMed API yanıt vermedi. Lütfen arama terimini değiştirip tekrar deneyin veya daha sonra tekrar deneyin.';
+                }
+                $('#pubmed-search-error').find('p').text(errorMsg);
                 $('#pubmed-search-error').show();
             }
         });
@@ -122,21 +127,22 @@ jQuery(document).ready(function($) {
                 nonce: pubmed_health_importer.nonce,
                 pubmed_id: pubmed_id
             },
+            timeout: 120000, // 2 dakika - AI içerik oluşturma zaman alabilir
             success: function(response) {
                 $button.prop('disabled', false);
                 $spinner.removeClass('is-active');
-                
+
                 if (response.success) {
                     // Başarı mesajı göster
                     var message = response.data.message;
-                    
+
                     if (response.data.edit_url && response.data.view_url) {
                         message += ' <a href="' + response.data.edit_url + '" target="_blank">Düzenle</a> | <a href="' + response.data.view_url + '" target="_blank">Görüntüle</a>';
                     }
-                    
+
                     $('#pubmed-import-success').find('p').html(message);
                     $('#pubmed-import-success').show();
-                    
+
                     // Butonu devre dışı bırak
                     $button.prop('disabled', true).text('İçe Aktarıldı');
                 } else {
@@ -144,11 +150,15 @@ jQuery(document).ready(function($) {
                     $('#pubmed-import-error').show();
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
                 $button.prop('disabled', false);
                 $spinner.removeClass('is-active');
-                
-                $('#pubmed-import-error').find('p').text('Bir hata oluştu. Lütfen daha sonra tekrar deneyin.');
+
+                var errorMsg = 'Bir hata oluştu. Lütfen tekrar deneyin.';
+                if (status === 'timeout') {
+                    errorMsg = 'İçe aktarma işlemi zaman aşımına uğradı. AI içerik oluşturma uzun sürebilir, lütfen tekrar deneyin veya daha kısa makaleler seçin.';
+                }
+                $('#pubmed-import-error').find('p').text(errorMsg);
                 $('#pubmed-import-error').show();
             }
         });
